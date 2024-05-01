@@ -819,6 +819,16 @@ sub _convert_request ($request) {
     warn 'parse error when converting HTTP::Request' if not $req->is_finished;
     return $req;
   }
+  elsif ($request->isa('Catalyst::Request')) {
+    my $req = Mojo::Message::Request->new;
+    $req->body($request->body);
+    $req->headers($request->headers->flatten);
+    $req->url(Mojo::URL->new($request->uri->as_string));
+    $req->method($request->method);
+    $req->protocol($request->protocol);
+    # maybe call $req->fix_headers() as above?
+    return $req;
+  }
   elsif ($request->isa('Plack::Request')) {
     my $req = Mojo::Message::Request->new->parse($request->env);
     my $body = $request->content;
