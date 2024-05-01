@@ -33,6 +33,7 @@ use constant { true => JSON::PP::true, false => JSON::PP::false };
 use Mojo::Message::Request;
 use Mojo::Message::Response;
 use Storable 'dclone';
+use DDP;
 use namespace::clean;
 
 has openapi_document => (
@@ -821,12 +822,11 @@ sub _convert_request ($request) {
   }
   elsif ($request->isa('Catalyst::Request')) {
     my $req = Mojo::Message::Request->new;
-    $req->body($request->body);
+    $req->body($request->body) if length($request->body);
     $req->headers($request->headers->flatten);
-    $req->url(Mojo::URL->new($request->uri->as_string));
+    $req->url->parse($request->uri);
     $req->method($request->method);
-    $req->protocol($request->protocol);
-    # maybe call $req->fix_headers() as above?
+    $req->fix_headers; # adds a missing Host by the looks of it :D
     return $req;
   }
   elsif ($request->isa('Plack::Request')) {
@@ -863,6 +863,18 @@ sub _convert_response ($response) {
     }
     my $body = $response->body;
     $res->body($body) if length $body;
+    return $res;
+  }
+  elsif ($response->isa('Catalyst::Response')) {
+    my $res = Mojo::Message::Response->new;
+    $res->code($response->status);
+    my @headers = $response->headers->flatten;
+    while (my ($name, $value) = splice(@headers, 0, 2)) {
+      $res->headers->header($name, $value);
+    }
+    my $body = $response->body;
+    $res->body($body) if length $body;
+    $res->fix_headers;
     return $res;
   }
 
