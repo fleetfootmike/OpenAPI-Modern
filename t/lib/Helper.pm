@@ -19,8 +19,6 @@ use Catalyst::Response;
 use Test2::API 'context_do';
 use Test::Needs;
 
-use DDP;
-
 use Test::More 0.96;
 use if $ENV{AUTHOR_TESTING}, 'Test::Warnings';
 use Test::Deep;
@@ -66,20 +64,25 @@ sub request ($method, $uri_string, $headers = [], $body_content = '') {
   }
   elsif ($TYPE eq 'catalyst') {
     my $uri = URI->new($uri_string);
+    my @query_params = $uri->query_form;
     my $host = $uri->host;
     my $http_headers = HTTP::Headers->new;
     $http_headers->push_header(@$_) foreach pairs @$headers, $host ? (Host => $host) : ();
     $http_headers->header( 'Content-Length' => length($body_content) )
-      if $body_content
+      if length $body_content
         and not defined $http_headers->header('Content-Length')
           and not defined $http_headers->header('Transfer-Encoding');
+
     $req = Catalyst::Request->new(
         _log     => undef,     # to shut C::R up
         method   => $method,
         uri      => $uri,
+        query_parameters => \@query_params,
         headers  => $http_headers,
         host     => $host,
-        (body => $body_content) x!! $body_content,
+        env      => {
+            ('plack.request.http.body' => $body_content) x!! $body_content,
+        },
     );
   }
   else {
@@ -127,14 +130,12 @@ sub response ($code, $headers = [], $body_content = '') {
         and not defined $res->headers->header('Transfer-Encoding');
   }
   elsif ($TYPE eq 'catalyst') {
-    p $body_content;
     my $http_headers = HTTP::Headers->new();
     $http_headers->push_header(@$_) foreach pairs @$headers;
     # have to do this ahead of time as C::Response won't let us touch them after
     $http_headers->header('Content-Length' => length($body_content))
       if $body_content and not defined $http_headers->header('Content-Length')
         and not defined $http_headers->header('Transfer-Encoding');
-    p $http_headers;
     $res = Catalyst::Response->new(
       headers => $http_headers,
       status => $code,

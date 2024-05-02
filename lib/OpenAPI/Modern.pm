@@ -19,7 +19,7 @@ no if "$]" >= 5.033006, feature => 'bareword_filehandles';
 use Carp 'croak';
 use Safe::Isa;
 use Ref::Util qw(is_plain_hashref is_plain_arrayref is_ref);
-use List::Util 'first';
+use List::Util qw/first pairs/;
 use Scalar::Util 'looks_like_number';
 use Feature::Compat::Try;
 use Encode 2.89 ();
@@ -33,7 +33,6 @@ use constant { true => JSON::PP::true, false => JSON::PP::false };
 use Mojo::Message::Request;
 use Mojo::Message::Response;
 use Storable 'dclone';
-use DDP;
 use namespace::clean;
 
 has openapi_document => (
@@ -822,8 +821,12 @@ sub _convert_request ($request) {
   }
   elsif ($request->isa('Catalyst::Request')) {
     my $req = Mojo::Message::Request->new;
-    $req->body($request->body) if length($request->body);
-    $req->headers($request->headers->flatten);
+    # $request->body tries to hide the raw content from us really quite thoroughly!
+    my $body_content = $request->env->{'plack.request.http.body'};
+    $req->body($body_content) if length($body_content);
+    $req->headers->add(@$_) foreach pairs $request->headers->flatten;
+    my $uri = $request->uri;
+    $uri->query_form($request->query_parameters);
     $req->url->parse($request->uri);
     $req->method($request->method);
     $req->fix_headers; # adds a missing Host by the looks of it :D
@@ -874,7 +877,7 @@ sub _convert_response ($response) {
     }
     my $body = $response->body;
     $res->body($body) if length $body;
-    $res->fix_headers;
+    # $res->fix_headers;
     return $res;
   }
 

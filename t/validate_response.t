@@ -401,7 +401,6 @@ YAML
 
   my $response = response(200, [ 'Content-Type' => 'application/json' ], 'null');
   remove_header($response, 'Content-Length');
-
   cmp_deeply(
     ($result = do {
       my $x = allow_patterns(qr/^parse error when converting HTTP::Response/) if $::TYPE eq 'lwp';
