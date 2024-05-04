@@ -19,7 +19,7 @@ no if "$]" >= 5.033006, feature => 'bareword_filehandles';
 use Carp 'croak';
 use Safe::Isa;
 use Ref::Util qw(is_plain_hashref is_plain_arrayref is_ref);
-use List::Util 'first';
+use List::Util qw/first pairs/;
 use Scalar::Util 'looks_like_number';
 use Feature::Compat::Try;
 use Encode 2.89 ();
@@ -127,7 +127,6 @@ sub validate_request ($self, $request, $options = {}) {
           if ($request_parameters_processed->{$param_obj->{in}}{$fc_name} // '') eq $section;
         next if exists $request_parameters_processed->{$param_obj->{in}}{$fc_name};
         $request_parameters_processed->{$param_obj->{in}}{$fc_name} = $section;
-
         $state->{data_path} = jsonp($state->{data_path},
           ((grep $param_obj->{in} eq $_, qw(path query)) ? 'uri' : ()), $param_obj->{in},
           $param_obj->{name});
@@ -174,7 +173,6 @@ sub validate_request ($self, $request, $options = {}) {
       while (my $ref = $body_obj->{'$ref'}) {
         $body_obj = $self->_resolve_ref('request-body', $ref, $state);
       }
-
       if ($request->body_size) {
         $self->_validate_body_content({ %$state, depth => $state->{depth}+1 }, $body_obj->{content}, $request);
       }
@@ -819,6 +817,23 @@ sub _convert_request ($request) {
     warn 'parse error when converting HTTP::Request' if not $req->is_finished;
     return $req;
   }
+  elsif ($request->isa('Catalyst::Request')) {
+    # caution, this is a bit ugly, as building a complete Catalyst::Request->env
+    # for tests is just nasty
+    my $req = Mojo::Message::Request->new;
+    # $request->body tries to hide the raw content from us really quite thoroughly!
+    my $body_content = exists $request->env->{'plack.request.http.body'}
+      ? $request->env->{'plack.request.http.body'}  # works for tests, from C::R source
+      : Plack::Request->new($request->env)->content; # this per haarg @ #catalyst
+    $req->headers->add(@$_) foreach pairs $request->headers->flatten;
+    my $uri = $request->uri;
+    $uri->query_form($request->query_parameters);
+    $req->url->parse($request->uri);
+    $req->method($request->method);
+    $req->body($body_content);
+    $req->fix_headers; # adds a missing Host by the looks of it :D
+    return $req;
+  }
   elsif ($request->isa('Plack::Request')) {
     my $req = Mojo::Message::Request->new->parse($request->env);
     my $body = $request->content;
@@ -853,6 +868,18 @@ sub _convert_response ($response) {
     }
     my $body = $response->body;
     $res->body($body) if length $body;
+    return $res;
+  }
+  elsif ($response->isa('Catalyst::Response')) {
+    my $res = Mojo::Message::Response->new;
+    $res->code($response->status);
+    my @headers = $response->headers->flatten;
+    while (my ($name, $value) = splice(@headers, 0, 2)) {
+      $res->headers->header($name, $value);
+    }
+    my $body = $response->body;
+    $res->body($body) if length $body;
+    # $res->fix_headers;
     return $res;
   }
 

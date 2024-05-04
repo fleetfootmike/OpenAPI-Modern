@@ -14,6 +14,8 @@ use HTTP::Response;
 use HTTP::Status ();
 use Mojo::Message::Request;
 use Mojo::Message::Response;
+use Catalyst::Request;
+use Catalyst::Response;
 use Test2::API 'context_do';
 use Test::Needs;
 
@@ -31,7 +33,8 @@ use YAML::PP 0.005;
 # 'mojo': classes of type Mojo::URL, Mojo::Headers, Mojo::Message::Request, Mojo::Message::Response
 # 'lwp': classes of type URI, HTTP::Headers, HTTP::Request, HTTP::Response
 # 'plack': classes of type Plack::Request, Plack::Response
-our @TYPES = qw(mojo lwp plack);
+# 'catalyst': classes of type Catalyst::Request, Catalyst::Response
+our @TYPES = qw(mojo lwp plack catalyst);
 our $TYPE;
 
 # Note: if you want your query parameters or uri fragment to be normalized, set them afterwards
@@ -58,6 +61,29 @@ sub request ($method, $uri_string, $headers = [], $body_content = '') {
 
     # add missing Content-Length, etc
     $req->fix_headers;
+  }
+  elsif ($TYPE eq 'catalyst') {
+    my $uri = URI->new($uri_string);
+    my @query_params = $uri->query_form;
+    my $host = $uri->host;
+    my $http_headers = HTTP::Headers->new;
+    $http_headers->push_header(@$_) foreach pairs @$headers, $host ? (Host => $host) : ();
+    $http_headers->header( 'Content-Length' => length($body_content) )
+      if length $body_content
+        and not defined $http_headers->header('Content-Length')
+          and not defined $http_headers->header('Transfer-Encoding');
+
+    $req = Catalyst::Request->new(
+        _log     => undef,     # to shut C::R up
+        method   => $method,
+        uri      => $uri,
+        query_parameters => \@query_params,
+        headers  => $http_headers,
+        host     => $host,
+        env      => {
+            ('plack.request.http.body' => $body_content) x!! $body_content,
+        },
+    );
   }
   else {
     die '$TYPE '.$TYPE.' not supported';
@@ -103,6 +129,19 @@ sub response ($code, $headers = [], $body_content = '') {
       if defined $body_content and not defined $res->headers->header('Content-Length')
         and not defined $res->headers->header('Transfer-Encoding');
   }
+  elsif ($TYPE eq 'catalyst') {
+    my $http_headers = HTTP::Headers->new();
+    $http_headers->push_header(@$_) foreach pairs @$headers;
+    # have to do this ahead of time as C::Response won't let us touch them after
+    $http_headers->header('Content-Length' => length($body_content))
+      if $body_content and not defined $http_headers->header('Content-Length')
+        and not defined $http_headers->header('Transfer-Encoding');
+    $res = Catalyst::Response->new(
+      headers => $http_headers,
+      status => $code,
+      (body => $body_content) x!! $body_content,
+    );
+  }
   else {
     die '$TYPE '.$TYPE.' not supported';
   }
@@ -114,7 +153,7 @@ sub uri ($uri_string, @path_parts) {
   die '$TYPE is not set' if not defined $TYPE;
 
   my $uri;
-  if ($TYPE eq 'lwp' or $TYPE eq 'plack') {
+  if ($TYPE eq 'lwp' or $TYPE eq 'plack' or $TYPE eq 'catalyst') {
     $uri = URI->new($uri_string);
     $uri->path_segments(@path_parts) if @path_parts;
   }
@@ -145,6 +184,9 @@ sub query_params ($request, $pairs) {
     $request->env->{QUERY_STRING} = Mojo::Parameters->new->pairs($pairs)->to_string;
     $request->env->{REQUEST_URI} .= '?' . $request->env->{QUERY_STRING};
   }
+  elsif ($TYPE eq 'catalyst') {
+    $request->query_parameters($pairs);
+  }
   else {
     die '$TYPE '.$TYPE.' not supported';
   }
@@ -155,7 +197,7 @@ sub query_params ($request, $pairs) {
 sub remove_header ($message, $header_name) {
   die '$TYPE is not set' if not defined $TYPE;
 
-  if ($TYPE eq 'lwp') {
+  if ($TYPE eq 'lwp' || $TYPE eq 'catalyst') {
     $message->headers->remove_header($header_name);
   }
   elsif ($TYPE eq 'mojo') {

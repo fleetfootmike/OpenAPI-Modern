@@ -567,7 +567,9 @@ YAML
   );
 
   $request = request('POST', 'http://example.com/foo', [ Alpha => 1, Beta => 1 ]);
+
   query_params($request, [alpha => 1, epsilon => '{"foo":42}']);
+
   cmp_deeply(
     ($result = $openapi->validate_request($request, { path_template => '/foo', path_captures => {} }))->TO_JSON,
     {
@@ -870,11 +872,10 @@ YAML
 
   TODO: {
     local $TODO = 'mojo will strip the content body when parsing a stringified request that lacks Content-Length'
-      if $::TYPE eq 'lwp' or $::TYPE eq 'plack';
+      if $::TYPE eq 'lwp' or $::TYPE eq 'plack' or $::TYPE eq 'catalyst';
 
     $request = request('POST', 'http://example.com/foo', [ 'Content-Type' => 'text/plain' ], 'éclair');
     remove_header($request, 'Content-Length');
-
     cmp_deeply(
       ($result = $openapi->validate_request($request, { path_template => '/foo', path_captures => {} }))->TO_JSON,
       {
